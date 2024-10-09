@@ -51,7 +51,7 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
   }
 
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "geofencing")
+    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
     channel.setMethodCallHandler(this)
     context = flutterPluginBinding.applicationContext
     geofencingClient = LocationServices.getGeofencingClient(context)

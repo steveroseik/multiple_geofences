@@ -14,7 +14,8 @@ class MultipleGeofences {
     return MultipleGeofencesPlatform.instance.getPlatformVersion();
   }
 
-  static const MethodChannel _channel = MethodChannel('geofencing');
+  static const MethodChannel _channel =
+      MethodChannel('com.roseik.multiple_geofences/geofencing');
   final Function(String regionId)? onEnterRegion;
   final Function(String regionId)? onLeaveRegion;
   final Function(String status)? onAuthorizationChanged;

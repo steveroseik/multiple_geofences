@@ -3,13 +3,16 @@ package com.roseik.multiple_geofences
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import androidx.core.content.ContextCompat
 
-class GeofencingRebootBroadcastReceiver : BroadcastReceiver() {
+class GeofenceRebootBroadcastReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            Log.d("GeofencingRebootReceiver", "Re-registering geofences after reboot")
-            MultipleGeofencesPlugin.reRegisterGeofences(context)
+            // Re-register geofences after reboot by starting GeofenceService
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, GeofenceService::class.java)
+            )
         }
     }
 }
