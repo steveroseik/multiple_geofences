@@ -8,63 +8,52 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
-import androidx.core.app.JobIntentService
-import com.google.android.gms.location.GeofencingEvent
-import com.google.android.gms.location.GeofenceStatusCodes
-import com.google.android.gms.location.Geofence
-import androidx.core.app.NotificationCompat
 import android.os.PowerManager
 import android.os.Build
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.google.android.gms.location.Geofence
+import com.google.android.gms.location.GeofencingEvent
+import com.google.android.gms.location.GeofenceStatusCodes
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class GeofenceService : JobIntentService() {
+class GeofenceService : Service() {
 
     private val WAKELOCK_TAG = "GeofenceService::WAKE_LOCK"
     private var wakeLock: PowerManager.WakeLock? = null
-    private var flutterEngine: FlutterEngine? = null
-
-    companion object {
-        const val JOB_ID = 12378123
-
-        fun enqueueWork(context: Context, intent: Intent) {
-            Log.d("GeofenceService", "Enqueuing work to GeofenceService")
-            enqueueWork(context, GeofenceService::class.java, JOB_ID, intent)
-        }
-    }
+    private lateinit var flutterEngine: FlutterEngine
 
     override fun onCreate() {
         super.onCreate()
-        startForegroundService()
+        startForegroundServiceWithNotification()
         acquireWakeLock()
 
-        // Initialize FlutterEngine to communicate with Dart
+        // Initialize a new FlutterEngine for handling background method calls
         flutterEngine = FlutterEngine(this)
-        flutterEngine?.dartExecutor?.let {
-            MethodChannel(it.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
-        }
+        flutterEngine.dartExecutor.executeDartEntrypoint(
+            io.flutter.embedding.engine.dart.DartExecutor.DartEntrypoint.createDefault()
+        )
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
     }
 
-    private fun startForegroundService() {
-        val CHANNEL_ID = "high_importance_channel"
+    private fun startForegroundServiceWithNotification() {
+        val CHANNEL_ID = "geofencing_notification_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Flutter Geofencing Plugin",
+                "Geofencing Service",
                 NotificationManager.IMPORTANCE_HIGH
             )
-            channel.description = "Channel for geofence notifications"
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .createNotificationChannel(channel)
+            channel.description = "Channel for geofencing service notifications"
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager.createNotificationChannel(channel)
         }
-
-        val imageId = resources.getIdentifier("ic_launcher", "mipmap", packageName)
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Geofencing Active")
             .setContentText("Monitoring your geofence location")
-            .setSmallIcon(imageId)
+            .setSmallIcon(android.R.drawable.ic_dialog_map)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
@@ -74,7 +63,7 @@ class GeofenceService : JobIntentService() {
     private fun acquireWakeLock() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG)
-        wakeLock?.acquire(10 * 60 * 1000L /*10 minutes*/)
+        wakeLock?.acquire(10 * 60 * 1000L) // 10 minutes wake lock
     }
 
     private fun releaseWakeLock() {
@@ -85,8 +74,14 @@ class GeofenceService : JobIntentService() {
         }
     }
 
-    override fun onHandleWork(intent: Intent) {
-        Log.d("GeofenceService", "Handling geofence event")
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent != null) {
+            handleGeofenceEvent(intent)
+        }
+        return START_STICKY // Ensures the service is restarted if killed
+    }
+
+    private fun handleGeofenceEvent(intent: Intent) {
         val geofencingEvent = GeofencingEvent.fromIntent(intent)
 
         if (geofencingEvent?.hasError() == true) {
@@ -120,66 +115,42 @@ class GeofenceService : JobIntentService() {
 
     private fun invokeFlutterMethod(method: String, arguments: Map<String, Any>) {
         Handler(Looper.getMainLooper()).post {
-            flutterEngine?.dartExecutor?.let {
-                MethodChannel(it.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
-                    .invokeMethod(method, arguments)
-            }
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
+                .invokeMethod(method, arguments)
         }
     }
 
     private fun sendEnterNotification() {
-        val CHANNEL_ID = "high_importance_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Flutter Geofencing Plugin",
-                NotificationManager.IMPORTANCE_HIGH
-            )
-            channel.description = "Channel for geofence notifications"
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .createNotificationChannel(channel)
-        }
-
-        val imageId = resources.getIdentifier("ic_launcher", "mipmap", packageName)
-
+        val CHANNEL_ID = "geofencing_notification_channel"
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Entered Region")
-            .setContentText("Entered current fence")
-            .setSmallIcon(imageId)
+            .setContentText("You have entered a monitored geofence area.")
+            .setSmallIcon(android.R.drawable.ic_dialog_map)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        startForeground(1, notification)
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager.notify(2, notification)
     }
 
     private fun sendLeaveNotification() {
-        val CHANNEL_ID = "high_importance_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Flutter Geofencing Plugin",
-                NotificationManager.IMPORTANCE_HIGH
-            )
-            channel.description = "Channel for geofence notifications"
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                .createNotificationChannel(channel)
-        }
-
-        val imageId = resources.getIdentifier("ic_launcher", "mipmap", packageName)
-
+        val CHANNEL_ID = "geofencing_notification_channel"
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Left Region")
-            .setContentText("Left current fence")
-            .setSmallIcon(imageId)
+            .setContentText("You have left a monitored geofence area.")
+            .setSmallIcon(android.R.drawable.ic_dialog_map)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        startForeground(1, notification)
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager.notify(3, notification)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         releaseWakeLock()
-        flutterEngine?.destroy() // Destroy the Flutter engine when the service is destroyed
+        flutterEngine.destroy() // Clean up the FlutterEngine when the service is destroyed
     }
+
+    override fun onBind(intent: Intent?) = null
 }
