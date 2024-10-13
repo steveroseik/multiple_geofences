@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.roseik.multiple_geofences.GeofenceService
 
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
