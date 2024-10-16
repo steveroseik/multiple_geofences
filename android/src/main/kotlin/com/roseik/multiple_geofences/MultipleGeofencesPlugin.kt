@@ -19,6 +19,11 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import android.util.Log
 import android.Manifest
 import android.os.Build
+import androidx.core.content.ContextCompat
+import android.os.Handler
+import android.os.Looper
+
+
 
 /** MultipleGeofencesPlugin */
 class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
@@ -72,7 +77,7 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val latitude = call.argument<Double>("latitude") ?: 0.0
         val longitude = call.argument<Double>("longitude") ?: 0.0
         val radius = call.argument<Double>("radius")?.toFloat() ?: 100f
-        val geofenceId = "geofence_${latitude}_${longitude}"
+        val geofenceId = call.argument<String>("geofenceId") ?: "default_geofence_id"
         startGeofencing(latitude, longitude, radius, geofenceId)
         result.success(geofenceId)
       }
@@ -80,6 +85,26 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val geofenceId = call.argument<String>("geofenceId") ?: "default_geofence_id"
         stopGeofencing(geofenceId)
         result.success("Geofencing stopped for ID: $geofenceId")
+      }
+      "isServiceRunning" -> {
+        result.success(GeofenceService.isServiceRunning)
+      }
+      "restartService" -> {
+        if (!GeofenceService.isServiceRunning) {
+          Log.d("MultipleGeofencesPlugin", "Attempting to restart GeofenceService...")
+          // Stop the service if it might be lingering
+          val stopIntent = Intent(context, GeofenceService::class.java)
+          context.stopService(stopIntent)
+
+          // Add a delay to allow the service to stop cleanly before restarting
+          Handler(Looper.getMainLooper()).postDelayed({
+            val restartIntent = Intent(context, GeofenceService::class.java)
+            ContextCompat.startForegroundService(context, restartIntent)
+            result.success(true)
+          }, 2000) // 2 seconds delay to allow for cleanup
+        } else {
+          result.success(false)
+        }
       }
       else -> {
         result.notImplemented()

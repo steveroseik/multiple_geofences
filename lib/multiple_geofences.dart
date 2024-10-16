@@ -20,6 +20,7 @@ class MultipleGeofences {
   final Function(String regionId)? onLeaveRegion;
   final Function(String status)? onAuthorizationChanged;
   final Function(String regionId, String error)? onMonitoringFailed;
+  final Function()? onServiceStarted;
   final ValueChanged<String>? onUnexpectedAction;
 
   MultipleGeofences(
@@ -27,7 +28,8 @@ class MultipleGeofences {
       this.onLeaveRegion,
       this.onAuthorizationChanged,
       this.onMonitoringFailed,
-      this.onUnexpectedAction});
+      this.onUnexpectedAction,
+      this.onServiceStarted});
 
   void initialize() {
     _channel.setMethodCallHandler(_handleMethodCall);
@@ -60,17 +62,26 @@ class MultipleGeofences {
   }
 
   Future<void> startGeofencing(
-      double latitude, double longitude, double radius) async {
+      String fenceId, double latitude, double longitude, double radius) async {
     try {
       final result = await _channel.invokeMethod('startGeofencing', {
+        'geofenceId': fenceId,
         'latitude': latitude,
         'longitude': longitude,
         'radius': radius,
       });
-      print(result);
+      print('Registered fence: $result');
     } on PlatformException catch (e) {
       print('Error starting geofencing: $e');
     }
+  }
+
+  Future<bool> isServiceRunning() async {
+    return await _channel.invokeMethod('isServiceRunning');
+  }
+
+  Future<bool> restartService() async {
+    return await _channel.invokeMethod('restartService');
   }
 
   Future<void> _handleMethodCall(MethodCall call) async {
@@ -99,6 +110,10 @@ class MultipleGeofences {
         // Handle monitoring failure
         onMonitoringFailed?.call(
             call.arguments['regionId'], call.arguments['error']);
+        break;
+      case 'onServiceStarted':
+        print('Service started!!');
+        onServiceStarted?.call();
         break;
       default:
         print('Unknown method called: ${call.method}');

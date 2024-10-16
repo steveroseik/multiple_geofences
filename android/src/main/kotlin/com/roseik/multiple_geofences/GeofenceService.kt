@@ -8,7 +8,6 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
 import com.google.android.gms.location.GeofenceStatusCodes
@@ -20,25 +19,46 @@ class GeofenceService : Service() {
 
     private val WAKELOCK_TAG = "GeofenceService::WAKE_LOCK"
     private var wakeLock: PowerManager.WakeLock? = null
-    private lateinit var flutterEngine: FlutterEngine
+    private var flutterEngine: FlutterEngine? = null
+
+    companion object {
+        var isServiceRunning: Boolean = false
+
+    }
 
     override fun onCreate() {
         super.onCreate()
         Log.d("GeofenceService", "GeofenceService started.")
 
-        // Create and start a FlutterEngine
-        flutterEngine = FlutterEngine(this)
-        flutterEngine.dartExecutor.executeDartEntrypoint(
-            DartExecutor.DartEntrypoint.createDefault()
-        )
+        // Start foreground service as early as possible
+        startForegroundServiceWithNotification()
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
-            .setMethodCallHandler { call, result ->
-                // Handle method calls if necessary
+        try {
+
+            flutterEngine = FlutterEngine(this)
+            flutterEngine?.dartExecutor?.executeDartEntrypoint(
+                DartExecutor.DartEntrypoint.createDefault()
+            )
+
+            flutterEngine?.let {
+                MethodChannel(it.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
+                    .setMethodCallHandler { call, result ->
+                        // Handle method calls if necessary
+                    }
             }
 
-        acquireWakeLock()
-        startForegroundServiceWithNotification()
+            acquireWakeLock()
+            isServiceRunning = true
+
+            // Notify Flutter that the service has successfully started
+            invokeFlutterMethod("onServiceStarted", mapOf("isRunning" to true))
+//            flutterEngine?.let {
+//                MethodChannel(it.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
+//                    .invokeMethod("onServiceStarted", true)
+//            }
+        } catch (e: Exception) {
+            Log.e("GeofenceService", "Failed to start GeofenceService: ${e.message}")
+        }
     }
 
     private fun startForegroundServiceWithNotification() {
@@ -79,8 +99,12 @@ class GeofenceService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        intent?.let {
-            handleGeofenceEvent(it)
+        if (!isServiceRunning) {
+            Log.e("GeofenceService", "Service failed to start properly in onCreate.")
+        } else {
+            intent?.let {
+                handleGeofenceEvent(it)
+            }
         }
         return START_STICKY
     }
@@ -103,12 +127,12 @@ class GeofenceService : Service() {
                 when (geofenceTransition) {
                     Geofence.GEOFENCE_TRANSITION_ENTER -> {
                         Log.d("GeofenceService", "Entered geofence with ID: $geofenceId")
-                        sendEnterNotification()
+
                         invokeFlutterMethod("onEnterRegion", mapOf("regionId" to geofenceId))
                     }
                     Geofence.GEOFENCE_TRANSITION_EXIT -> {
                         Log.d("GeofenceService", "Exited geofence with ID: $geofenceId")
-                        sendLeaveNotification()
+
                         invokeFlutterMethod("onExitRegion", mapOf("regionId" to geofenceId))
                     }
                     else -> {
@@ -120,8 +144,17 @@ class GeofenceService : Service() {
     }
 
     private fun invokeFlutterMethod(method: String, arguments: Map<String, Any>) {
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
-            .invokeMethod(method, arguments)
+        try {
+            if (flutterEngine != null) {
+                MethodChannel(flutterEngine!!.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
+                    .invokeMethod(method, arguments)
+            } else {
+                Log.e("GeofenceService", "FlutterEngine is null. Unable to invoke method: $method")
+                // You can log or handle the situation here where FlutterEngine is not available.
+            }
+        } catch (e: Exception) {
+            Log.e("GeofenceService", "Failed to invoke Flutter method: ${e.message}")
+        }
     }
 
     private fun sendEnterNotification() {
@@ -155,6 +188,7 @@ class GeofenceService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         releaseWakeLock()
-        flutterEngine.destroy() // Clean up the FlutterEngine when the service is destroyed
+        flutterEngine?.destroy() // Clean up the FlutterEngine when the service is destroyed
+        isServiceRunning = false
     }
 }

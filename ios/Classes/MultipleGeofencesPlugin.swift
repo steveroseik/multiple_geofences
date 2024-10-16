@@ -22,8 +22,9 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
       if let args = call.arguments as? [String: Any],
          let latitude = args["latitude"] as? Double,
          let longitude = args["longitude"] as? Double,
-         let radius = args["radius"] as? Double {
-        startGeofencing(latitude: latitude, longitude: longitude, radius: radius, result: result)
+         let radius = args["radius"] as? Double,
+         let geofenceId = args["geofenceId"] as? String{
+          startGeofencing(id: geofenceId, latitude: latitude, longitude: longitude, radius: radius, result: result)
       } else {
         result(FlutterError(code: "INVALID_ARGUMENTS", message: "Invalid arguments for startGeofencing", details: nil))
       }
@@ -43,7 +44,7 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
     result("Location permission requested")
   }
 
-  private func startGeofencing(latitude: Double, longitude: Double, radius: Double, result: @escaping FlutterResult) {
+    private func startGeofencing(id: String, latitude: Double, longitude: Double, radius: Double, result: @escaping FlutterResult) {
     guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else {
       result(FlutterError(code: "GEOFENCING_NOT_AVAILABLE", message: "Geofencing is not supported on this device", details: nil))
       return
@@ -54,7 +55,7 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
       return
     }
 
-    let region = CLCircularRegion(center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude), radius: radius, identifier: "geofence")
+    let region = CLCircularRegion(center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude), radius: radius, identifier: id ?? "default_geofence_id")
     region.notifyOnEntry = true
     region.notifyOnExit = true
 
