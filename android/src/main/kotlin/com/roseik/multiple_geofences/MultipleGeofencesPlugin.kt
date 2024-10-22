@@ -13,22 +13,29 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.location.GeofenceStatusCodes
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import android.util.Log
 import android.Manifest
+import android.app.AlertDialog
+import android.net.Uri
 import android.os.Build
 import androidx.core.content.ContextCompat
 import android.os.Handler
 import android.os.Looper
-
-
+import android.os.PowerManager
+import android.provider.Settings
+import android.app.Activity
 
 /** MultipleGeofencesPlugin */
-class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
+class MultipleGeofencesPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
+
   private lateinit var channel: MethodChannel
   private lateinit var context: Context
+  private var activity: Activity? = null
   private lateinit var geofencingClient: GeofencingClient
   private var geofencePendingIntent: PendingIntent? = null
 
@@ -36,23 +43,77 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     var methodChannel: MethodChannel? = null
 
     fun reRegisterGeofences(context: Context) {
-      val prefs = context.getSharedPreferences("GeofencingPrefs", Context.MODE_PRIVATE)
-      val allGeofences = prefs.all
+      try{
+        Log.i("MultipleGeofencesPlugin", "RBF:: reRegisterGeofences ACTION")
 
-      for ((geofenceId, geofenceData) in allGeofences) {
-        if (geofenceData is String) {
-          val geofenceParams = geofenceData.split(",")
-          if (geofenceParams.size == 3) {
-            val latitude = geofenceParams[0].toDoubleOrNull() ?: continue
-            val longitude = geofenceParams[1].toDoubleOrNull() ?: continue
-            val radius = geofenceParams[2].toFloatOrNull() ?: continue
+        // Initialize geofencing client using the provided context to ensure it is available after a reboot
+        val geofencingClient = LocationServices.getGeofencingClient(context)
 
-            // Re-register the geofence
-            MultipleGeofencesPlugin().startGeofencing(latitude, longitude, radius, geofenceId)
+        val prefs = context.getSharedPreferences("GeofencingPrefs", Context.MODE_PRIVATE)
+        val allGeofences = prefs.all
+
+        for ((geofenceId, geofenceData) in allGeofences) {
+          if (geofenceData is String) {
+            val geofenceParams = geofenceData.split(",")
+            if (geofenceParams.size == 3) {
+              val latitude = geofenceParams[0].toDoubleOrNull() ?: continue
+              val longitude = geofenceParams[1].toDoubleOrNull() ?: continue
+              val radius = geofenceParams[2].toFloatOrNull() ?: continue
+              Log.i("MultipleGeofencesPlugin", "RBF:: Re-registering geofence with ID: $geofenceId")
+
+              // Re-register the geofence using the newly created client
+              startGeofencing(context, geofencingClient, latitude, longitude, radius, geofenceId)
+            }
           }
         }
+        Log.i("MultipleGeofencesPlugin", "RBF:: reRegisterGeofences END")
+      }catch(e: Exception){
+        Log.e("MultipleGeofencesPlugin", "RBF:: Failed to re-register geofences: ${e.message}")
+        throw e
       }
     }
+
+    private fun startGeofencing(
+      context: Context,
+      geofencingClient: GeofencingClient,
+      latitude: Double,
+      longitude: Double,
+      radius: Float,
+      geofenceId: String
+    ) {
+      val geofence = Geofence.Builder()
+        .setRequestId(geofenceId)
+        .setCircularRegion(latitude, longitude, radius)
+        .setExpirationDuration(Geofence.NEVER_EXPIRE)
+        .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
+        .build()
+
+      val geofencingRequest = GeofencingRequest.Builder()
+        .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
+        .addGeofence(geofence)
+        .build()
+
+      val geofencePendingIntent = PendingIntent.getBroadcast(
+        context,
+        0,
+        Intent(context, GeofenceBroadcastReceiver::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+      )
+
+      geofencingClient.addGeofences(geofencingRequest, geofencePendingIntent)
+        .addOnSuccessListener {
+          Log.i("MultipleGeofencesPlugin", "Geofence added successfully with ID: $geofenceId")
+        }
+        .addOnFailureListener { e ->
+          val errorMessage = if (e is com.google.android.gms.common.api.ApiException) {
+            GeofenceStatusCodes.getStatusCodeString(e.statusCode)
+          } else {
+            e.localizedMessage ?: "Unknown error"
+          }
+          Log.e("MultipleGeofencesPlugin", "Failed to add geofence: $errorMessage")
+        }
+    }
+
   }
 
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
@@ -63,14 +124,30 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     methodChannel = channel
   }
 
+  override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+    activity = binding.activity
+  }
+
+  override fun onDetachedFromActivity() {
+    activity = null
+  }
+
+  override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+    activity = binding.activity
+  }
+
+  override fun onDetachedFromActivityForConfigChanges() {
+    activity = null
+  }
+
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: MethodChannel.Result) {
     when (call.method) {
+      "checkAndRequestBatteryOptimization" -> {
+        activity?.let { promptUserForBatteryOptimization(it) }
+        result.success(null)
+      }
       "requestLocationPermission" -> {
-        if (hasLocationPermissions(result)) {
-          result.success(true)
-        } else {
-          result.success(false)
-        }
+        hasLocationPermissions(result)
       }
       "startGeofencing" -> {
         Log.d("MultipleGeofencesPlugin", "startGeofencing ACTION")
@@ -87,9 +164,15 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         result.success("Geofencing stopped for ID: $geofenceId")
       }
       "isServiceRunning" -> {
-        result.success(GeofenceService.isServiceRunning)
+        val geofenceId = call.argument<String>("geofenceId") ?: "default_geofence_id"
+        val isRunning = GeofenceService.isServiceRunning && isGeofenceRegistered(geofenceId)
+        result.success(isRunning)
       }
       "restartService" -> {
+        val latitude = call.argument<Double>("latitude") ?: 0.0
+        val longitude = call.argument<Double>("longitude") ?: 0.0
+        val radius = call.argument<Double>("radius")?.toFloat() ?: 100f
+        val geofenceId = call.argument<String>("geofenceId") ?: "default_geofence_id"
         if (!GeofenceService.isServiceRunning) {
           Log.d("MultipleGeofencesPlugin", "Attempting to restart GeofenceService...")
           // Stop the service if it might be lingering
@@ -100,11 +183,17 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
           Handler(Looper.getMainLooper()).postDelayed({
             val restartIntent = Intent(context, GeofenceService::class.java)
             ContextCompat.startForegroundService(context, restartIntent)
+            // Re-register the geofence
+            startGeofencing(latitude, longitude, radius, geofenceId)
             result.success(true)
           }, 2000) // 2 seconds delay to allow for cleanup
         } else {
           result.success(false)
         }
+      }
+      "checkLocationPermissionStatus" -> {
+        val status = getLocationPermissionStatus()
+        result.success(status)
       }
       else -> {
         result.notImplemented()
@@ -112,7 +201,7 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
   }
 
-  private fun hasLocationPermissions(result: MethodChannel.Result): Boolean {
+  private fun hasLocationPermissions(result: MethodChannel.Result) {
     val fineLocationGranted = ActivityCompat.checkSelfPermission(
       context, Manifest.permission.ACCESS_FINE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED
@@ -125,8 +214,29 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
       true
     }
 
-    return fineLocationGranted && backgroundLocationGranted
+    if (fineLocationGranted && backgroundLocationGranted){
+        result.success(true)
+    } else {
+        result.success(false)
+    }
   }
+
+  private fun getLocationPermissionStatus(): Int {
+    val fineLocationStatus = ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+    val backgroundLocationStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+    } else {
+      PackageManager.PERMISSION_GRANTED
+    }
+
+    return when {
+      fineLocationStatus == PackageManager.PERMISSION_GRANTED && backgroundLocationStatus == PackageManager.PERMISSION_GRANTED -> 3 // Authorized Always
+      fineLocationStatus == PackageManager.PERMISSION_GRANTED -> 1 // Authorized When In Use
+      fineLocationStatus == PackageManager.PERMISSION_DENIED -> 2 // Denied
+      else -> 0 // Not Determined
+    }
+  }
+
 
   private fun startGeofencing(latitude: Double, longitude: Double, radius: Float, geofenceId: String) {
     val geofence = Geofence.Builder()
@@ -176,6 +286,11 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     editor.apply()
   }
 
+  private fun isGeofenceRegistered(geofenceId: String): Boolean {
+    val prefs = context.getSharedPreferences("GeofencingPrefs", Context.MODE_PRIVATE)
+    return prefs.contains(geofenceId)
+  }
+
   fun reRegisterGeofences(context: Context) {
     val prefs = context.getSharedPreferences("GeofencingPrefs", Context.MODE_PRIVATE)
     val allGeofences = prefs.all
@@ -205,6 +320,21 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
           "error" to e.message
         ))
       }
+  }
+
+  fun promptUserForBatteryOptimization(context: Context) {
+    // Get PowerManager instance
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    val packageName = context.packageName
+
+    // Check if app is already excluded from battery optimizations
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+
+      val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+        data = Uri.parse("package:$packageName")
+      }
+      context.startActivity(intent)
+    }
   }
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {

@@ -1,7 +1,9 @@
 library multiple_geofences;
 
+import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:multiple_geofences/request_permission.dart';
 
@@ -23,6 +25,8 @@ class MultipleGeofences {
   final Function()? onServiceStarted;
   final ValueChanged<String>? onUnexpectedAction;
 
+  ValueNotifier<int> iosPermissionStatus = ValueNotifier<int>(-1);
+
   MultipleGeofences(
       {this.onEnterRegion,
       this.onLeaveRegion,
@@ -31,15 +35,29 @@ class MultipleGeofences {
       this.onUnexpectedAction,
       this.onServiceStarted});
 
+  dispose() {
+    iosPermissionStatus.dispose();
+  }
+
   void initialize() {
     _channel.setMethodCallHandler(_handleMethodCall);
   }
 
   Future<bool> requestLocationPermission() async {
     try {
+      if (Platform.isAndroid)
+        await _channel.invokeMethod('checkAndRequestBatteryOptimization');
       bool response = await _channel.invokeMethod('requestLocationPermission');
-      if (response == false && Platform.isAndroid) {
-        return await requestAndroidPermission();
+      print('Plugin perm response: $response');
+      print('Response type: ${response is bool}');
+      if (response == false) {
+        print('What platform: ${Platform.operatingSystem}');
+        if (Platform.isAndroid) {
+          print('Access android request permission');
+          return await requestAndroidPermission();
+        } else if (Platform.isIOS) {
+          return await requestIOSPermission();
+        }
       }
       return response;
     } on PlatformException catch (e) {
@@ -51,9 +69,30 @@ class MultipleGeofences {
     }
   }
 
+  Future<bool> requestIOSPermission() async {
+    print('accessed ios permission: ${iosPermissionStatus.value}');
+    Completer<bool> permissionChanged = Completer<bool>();
+
+    whenChanged() async {
+      print('ios permission status: ${iosPermissionStatus.value}');
+      if (iosPermissionStatus.value == 3) {
+        permissionChanged.complete(true);
+      } else {
+        permissionChanged.complete(false);
+      }
+      iosPermissionStatus.removeListener(whenChanged);
+    }
+
+    iosPermissionStatus.addListener(whenChanged);
+
+    return permissionChanged.future;
+  }
+
   // Check for location permissions
   Future<bool> requestAndroidPermission() async {
+    print('Accessed hena yaba');
     try {
+      print('bahawel ahoo');
       return await requestPermissions();
     } on PlatformException catch (e) {
       print('Error requesting location permission: $e');
@@ -76,12 +115,19 @@ class MultipleGeofences {
     }
   }
 
-  Future<bool> isServiceRunning() async {
-    return await _channel.invokeMethod('isServiceRunning');
+  Future<bool> isServiceRunning(String fenceId) async {
+    return await _channel
+        .invokeMethod('isServiceRunning', {'geofenceId': fenceId});
   }
 
-  Future<bool> restartService() async {
-    return await _channel.invokeMethod('restartService');
+  Future<bool> restartService(
+      String fenceId, double latitude, double longitude, double radius) async {
+    return await _channel.invokeMethod('restartService', {
+      'geofenceId': fenceId,
+      'latitude': latitude,
+      'longitude': longitude,
+      'radius': radius,
+    });
   }
 
   Future<void> _handleMethodCall(MethodCall call) async {
@@ -100,9 +146,13 @@ class MultipleGeofences {
         }
         break;
       case 'onAuthorizationChanged':
+        print('only data: "${call.arguments['status']}"');
+        iosPermissionStatus.value =
+            int.parse(call.arguments['status'].toString());
         print('Authorization status changed: ${call.arguments['status']}');
         // Handle authorization status change
         onAuthorizationChanged?.call(call.arguments['status']);
+
         break;
       case 'onMonitoringFailed':
         print(

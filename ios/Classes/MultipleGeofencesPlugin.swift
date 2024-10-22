@@ -8,7 +8,7 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
   private var channel: FlutterMethodChannel?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
-    let channel = FlutterMethodChannel(name: "geofencing", binaryMessenger: registrar.messenger())
+    let channel = FlutterMethodChannel(name: "com.roseik.multiple_geofences/geofencing", binaryMessenger: registrar.messenger())
     let instance = MultipleGeofencesPlugin()
     instance.channel = channel
     registrar.addMethodCallDelegate(instance, channel: channel)
@@ -28,20 +28,78 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
       } else {
         result(FlutterError(code: "INVALID_ARGUMENTS", message: "Invalid arguments for startGeofencing", details: nil))
       }
+   case "isServiceRunning":
+         if let args = call.arguments as? [String: Any],
+            let geofenceId = args["geofenceId"] as? String {
+           result(isServiceRunning(geofenceId: geofenceId))
+         } else {
+           result(FlutterError(code: "INVALID_ARGUMENTS", message: "Invalid arguments for isServiceRunning", details: nil))
+         }
+   case "restartService":
+    if let args = call.arguments as? [String: Any],
+     let latitude = args["latitude"] as? Double,
+     let longitude = args["longitude"] as? Double,
+     let radius = args["radius"] as? Double,
+     let geofenceId = args["geofenceId"] as? String{
+       restartService(geofenceId: geofenceId, latitude: latitude, longitude: longitude, radius: radius, result: result)
+     } else {
+       result(FlutterError(code: "INVALID_ARGUMENTS", message: "Invalid arguments for restartService", details: nil))
+     }
     default:
       result(FlutterMethodNotImplemented)
     }
   }
+    
+ private func isServiceRunning(geofenceId: String) -> Bool {
+    guard let monitoredRegions = locationManager?.monitoredRegions else {
+      return false
+    }
+
+    for region in monitoredRegions {
+      if let circularRegion = region as? CLCircularRegion,
+         circularRegion.identifier == geofenceId {
+        return true
+      }
+    }
+    return false
+  }
+
+  private func restartService(geofenceId: String, latitude: Double, longitude: Double, radius: Double, result: @escaping FlutterResult) {
+    // Stop monitoring the existing geofence
+    guard let monitoredRegions = locationManager?.monitoredRegions else {
+      result(FlutterError(code: "GEOFENCE_NOT_RUNNING", message: "Geofence with ID \(geofenceId) is not currently running", details: nil))
+      return
+    }
+
+    for region in monitoredRegions {
+      if let circularRegion = region as? CLCircularRegion, circularRegion.identifier == geofenceId {
+        locationManager?.stopMonitoring(for: circularRegion)
+        break
+      }
+    }
+
+    // Restart the geofencing service
+    startGeofencing(id: geofenceId, latitude: latitude, longitude: longitude, radius: radius, result: result)
+  }
 
   private func requestLocationPermission(result: @escaping FlutterResult) {
     if locationManager == nil {
-      locationManager = CLLocationManager()
-      locationManager?.delegate = self
-      locationManager?.allowsBackgroundLocationUpdates = true // Enable background updates
-      locationManager?.pausesLocationUpdatesAutomatically = false // Prevent pausing updates
-    }
-    locationManager?.requestAlwaysAuthorization()
-    result("Location permission requested")
+            locationManager = CLLocationManager()
+            locationManager?.delegate = self
+            locationManager?.allowsBackgroundLocationUpdates = true // Enable background updates
+            locationManager?.pausesLocationUpdatesAutomatically = false // Prevent pausing updates
+        }
+
+        // Request Always Authorization
+        locationManager?.requestAlwaysAuthorization()
+
+        // Check the current authorization status
+        let currentStatus = CLLocationManager.authorizationStatus()
+        if currentStatus == .authorizedAlways {
+            result(true)
+        } else {
+            result(false)
+        }
   }
 
     private func startGeofencing(id: String, latitude: Double, longitude: Double, radius: Double, result: @escaping FlutterResult) {

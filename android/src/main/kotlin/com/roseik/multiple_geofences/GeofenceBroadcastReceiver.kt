@@ -11,7 +11,7 @@ import com.roseik.multiple_geofences.GeofenceService
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        Log.d("GeofenceBroadcastReceiver", "Geofence event received.")
+        Log.i("GeofenceBroadcastReceiver", "RBF:: Geofence event received.")
 
         // Acquire a temporary wake lock to ensure the device does not go to sleep before starting the service
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager

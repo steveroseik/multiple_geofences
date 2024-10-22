@@ -3,9 +3,12 @@ package com.roseik.multiple_geofences
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.location.Geofence
@@ -20,7 +23,6 @@ class GeofenceService : Service() {
     private val WAKELOCK_TAG = "GeofenceService::WAKE_LOCK"
     private var wakeLock: PowerManager.WakeLock? = null
     private var flutterEngine: FlutterEngine? = null
-
     companion object {
         var isServiceRunning: Boolean = false
 
@@ -51,11 +53,10 @@ class GeofenceService : Service() {
             isServiceRunning = true
 
             // Notify Flutter that the service has successfully started
-            invokeFlutterMethod("onServiceStarted", mapOf("isRunning" to true))
-//            flutterEngine?.let {
-//                MethodChannel(it.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
-//                    .invokeMethod("onServiceStarted", true)
-//            }
+            flutterEngine?.let {
+                MethodChannel(it.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
+                    .invokeMethod("onServiceStarted", true)
+            }
         } catch (e: Exception) {
             Log.e("GeofenceService", "Failed to start GeofenceService: ${e.message}")
         }
