@@ -5,11 +5,25 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
-import 'package:multiple_geofences/request_permission.dart';
+import 'package:multiple_geofences/request_permission_android.dart';
 
 import 'multiple_geofences_platform_interface.dart';
 
 export './multiple_geofences.dart';
+
+enum GeofencePermissionStatus {
+  /// The user has denied the use of location services for the app or has not yet responded to the permission request.
+  idle,
+
+  /// The user has allowed the use of location services for the app.
+  allowed,
+
+  /// The user has denied the use of location services for the app.
+  denied,
+
+  /// In Android, user has declined the request to ignore battery optimizations.
+  limited,
+}
 
 class MultipleGeofences {
   Future<String?> getPlatformVersion() {
@@ -20,7 +34,7 @@ class MultipleGeofences {
       MethodChannel('com.roseik.multiple_geofences/geofencing');
   final Function(String regionId)? onEnterRegion;
   final Function(String regionId)? onLeaveRegion;
-  final Function(String status)? onAuthorizationChanged;
+  final Function(int status)? onAuthorizationChanged;
   final Function(String regionId, String error)? onMonitoringFailed;
   final Function()? onServiceStarted;
   final ValueChanged<String>? onUnexpectedAction;
@@ -43,42 +57,68 @@ class MultipleGeofences {
     _channel.setMethodCallHandler(_handleMethodCall);
   }
 
-  Future<bool> requestLocationPermission() async {
+  Future<void> requestIgnoreBatteryOptimization() async {
+    if (Platform.isIOS) return;
     try {
-      if (Platform.isAndroid)
-        await _channel.invokeMethod('checkAndRequestBatteryOptimization');
-      bool response = await _channel.invokeMethod('requestLocationPermission');
-      print('Plugin perm response: $response');
-      print('Response type: ${response is bool}');
-      if (response == false) {
-        print('What platform: ${Platform.operatingSystem}');
-        if (Platform.isAndroid) {
-          print('Access android request permission');
-          return await requestAndroidPermission();
-        } else if (Platform.isIOS) {
-          return await requestIOSPermission();
-        }
-      }
-      return response;
-    } on PlatformException catch (e) {
-      print('Error requesting location permission: ${e.code}');
-      if (Platform.isAndroid && e.code == 'PERMISSION_DENIED') {
-        return await requestAndroidPermission();
-      }
+      await _channel.invokeMethod('requestIgnoreBatteryOptimization');
+    } catch (e, s) {
+      print('$e, $s');
+    }
+  }
+
+  Future<bool> isBatteryOptimizationIgnored() async {
+    if (Platform.isIOS) return true;
+    try {
+      return await _channel.invokeMethod('isBatteryOptimizationIgnored');
+    } catch (e, s) {
+      print('$e, $s');
       return false;
     }
   }
 
-  Future<bool> requestIOSPermission() async {
-    print('accessed ios permission: ${iosPermissionStatus.value}');
-    Completer<bool> permissionChanged = Completer<bool>();
+  Future<bool> isLocationPermissionAllowed() async {
+    if (Platform.isAndroid) {
+      return await _channel.invokeMethod('requestLocationPermission');
+    } else if (Platform.isIOS) {
+      return await _channel.invokeMethod('isLocationPermissionAllowed');
+    }
+
+    return false;
+  }
+
+  Future<GeofencePermissionStatus> requestLocationPermission() async {
+    try {
+      bool response = await _channel.invokeMethod('requestLocationPermission');
+
+      if (response == false) {
+        if (Platform.isAndroid) {
+          return await requestAndroidPermission();
+        } else {
+          return GeofencePermissionStatus.denied;
+        }
+      } else {
+        final batteryOptimization = await isBatteryOptimizationIgnored();
+        if (!batteryOptimization) return GeofencePermissionStatus.limited;
+      }
+
+      return GeofencePermissionStatus.allowed;
+    } on PlatformException catch (e) {
+      if (Platform.isAndroid && e.code == 'PERMISSION_DENIED') {
+        return await requestAndroidPermission();
+      }
+      return GeofencePermissionStatus.denied;
+    }
+  }
+
+  Future<GeofencePermissionStatus> requestIOSPermission() async {
+    Completer<GeofencePermissionStatus> permissionChanged =
+        Completer<GeofencePermissionStatus>();
 
     whenChanged() async {
-      print('ios permission status: ${iosPermissionStatus.value}');
       if (iosPermissionStatus.value == 3) {
-        permissionChanged.complete(true);
+        permissionChanged.complete(GeofencePermissionStatus.allowed);
       } else {
-        permissionChanged.complete(false);
+        permissionChanged.complete(GeofencePermissionStatus.denied);
       }
       iosPermissionStatus.removeListener(whenChanged);
     }
@@ -89,15 +129,18 @@ class MultipleGeofences {
   }
 
   // Check for location permissions
-  Future<bool> requestAndroidPermission() async {
-    print('Accessed hena yaba');
+  Future<GeofencePermissionStatus> requestAndroidPermission() async {
     try {
-      print('bahawel ahoo');
-      return await requestPermissions();
+      await requestIgnoreBatteryOptimization();
+      final granted = await requestAndroidPermissions();
+      if (!granted) return GeofencePermissionStatus.denied;
+      final ignoredBattery = await isBatteryOptimizationIgnored();
+      if (!ignoredBattery) return GeofencePermissionStatus.limited;
+      return GeofencePermissionStatus.allowed;
     } on PlatformException catch (e) {
       print('Error requesting location permission: $e');
-      return false;
     }
+    return GeofencePermissionStatus.denied;
   }
 
   Future<void> startGeofencing(
@@ -130,7 +173,12 @@ class MultipleGeofences {
     });
   }
 
+  Future openLocationSettings() async {
+    return await _channel.invokeMethod('openLocationSettings');
+  }
+
   Future<void> _handleMethodCall(MethodCall call) async {
+    print('Method called: ${call.method}');
     switch (call.method) {
       case 'onEnterRegion':
         print('Entered region: ${call.arguments['regionId']}');

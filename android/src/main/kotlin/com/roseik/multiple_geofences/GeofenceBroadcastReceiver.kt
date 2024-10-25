@@ -19,13 +19,15 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         wakeLock.acquire(10 * 60 * 1000L /*10 minutes*/) // Acquire for up to 10 minutes
 
         try {
+            Log.i("GeofenceBroadcastReceiver", "RBF:: intiializing service intent")
             // Start the GeofenceService as a foreground service
             val serviceIntent = Intent(context, GeofenceService::class.java).apply {
                 putExtras(intent)
             }
             ContextCompat.startForegroundService(context, serviceIntent)
+            Log.i("GeofenceBroadcastReceiver", "RBF:: Service started")
         } catch (e: Exception) {
-            Log.e("GeofenceBroadcastReceiver", "Failed to start GeofenceService", e)
+            Log.e("GeofenceBroadcastReceiver", "RBF:: Failed to start GeofenceService from receiver", e)
         } finally {
             // Release the wake lock after starting the service
             wakeLock.release()

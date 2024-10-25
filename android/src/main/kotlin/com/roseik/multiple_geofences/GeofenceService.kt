@@ -30,24 +30,26 @@ class GeofenceService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d("GeofenceService", "GeofenceService started.")
+        Log.d("GeofenceService", "RBF:: GeofenceService started.")
 
-        // Start foreground service as early as possible
-        startForegroundServiceWithNotification()
-
-        try {
-
+        try{
+            Log.d("GeofenceService", "RBF:: Starting GeofenceService...")
             flutterEngine = FlutterEngine(this)
+            Log.d("GeofenceService", "RBF:: FlutterEngine created: ${flutterEngine}")
             flutterEngine?.dartExecutor?.executeDartEntrypoint(
                 DartExecutor.DartEntrypoint.createDefault()
             )
 
             flutterEngine?.let {
+                Log.d("GeofenceService", "RBF:: FlutterEngine set: ${it}")
                 MethodChannel(it.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
                     .setMethodCallHandler { call, result ->
                         // Handle method calls if necessary
                     }
             }
+
+            // Start foreground service as early as possible
+            startForegroundServiceWithNotification()
 
             acquireWakeLock()
             isServiceRunning = true
@@ -57,8 +59,8 @@ class GeofenceService : Service() {
                 MethodChannel(it.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
                     .invokeMethod("onServiceStarted", true)
             }
-        } catch (e: Exception) {
-            Log.e("GeofenceService", "Failed to start GeofenceService: ${e.message}")
+        }catch (e: Exception){
+            Log.e("GeofenceService", "RBF:: Failed to start GeofenceService: ${e.message}")
         }
     }
 
@@ -83,6 +85,8 @@ class GeofenceService : Service() {
             .build()
 
         startForeground(1, notification)
+        Log.i("GeofenceService", "RBF:: Started foreground service with notification.")
+        invokeFlutterMethod("onServiceStarted", mapOf("isServiceRunning" to true))
     }
 
     private fun acquireWakeLock() {
@@ -101,7 +105,7 @@ class GeofenceService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!isServiceRunning) {
-            Log.e("GeofenceService", "Service failed to start properly in onCreate.")
+            Log.e("GeofenceService", "RBF:: Service failed to start properly in onCreate.")
         } else {
             intent?.let {
                 handleGeofenceEvent(it)
@@ -111,13 +115,17 @@ class GeofenceService : Service() {
     }
 
     private fun handleGeofenceEvent(intent: Intent) {
+        Log.d("GeofenceService", "RBF:: Handling geofence event: ${intent}")
         val geofencingEvent = GeofencingEvent.fromIntent(intent)
 
         if (geofencingEvent?.hasError() == true) {
             val errorMessage = GeofenceStatusCodes.getStatusCodeString(geofencingEvent.errorCode)
-            Log.e("GeofenceService", "Error: $errorMessage")
+            Log.e("GeofenceService", "RBF:: Error: $errorMessage")
             return
         }
+
+        Log.d("GeofenceService", "RBF:: Geofence event: $geofencingEvent")
+        Log.d("GeofenceService", "RBF:: Geofence Transiition: ${geofencingEvent?.geofenceTransition}")
 
         geofencingEvent?.let { event ->
             val geofenceTransition = event.geofenceTransition
@@ -147,39 +155,16 @@ class GeofenceService : Service() {
     private fun invokeFlutterMethod(method: String, arguments: Map<String, Any>) {
         try {
             if (flutterEngine != null) {
+                Log.d("GeofenceService", "RBF:: Invoking Flutter method: $method -> $arguments")
                 MethodChannel(flutterEngine!!.dartExecutor.binaryMessenger, "com.roseik.multiple_geofences/geofencing")
                     .invokeMethod(method, arguments)
             } else {
-                Log.e("GeofenceService", "FlutterEngine is null. Unable to invoke method: $method")
+                Log.e("GeofenceService", "RBF:: FlutterEngine is null. Unable to invoke method: $method")
                 // You can log or handle the situation here where FlutterEngine is not available.
             }
         } catch (e: Exception) {
-            Log.e("GeofenceService", "Failed to invoke Flutter method: ${e.message}")
+            Log.e("GeofenceService", "RBF:: Failed to invoke Flutter method: ${e.message}")
         }
-    }
-
-    private fun sendEnterNotification() {
-        val CHANNEL_ID = "geofencing_notification_channel"
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Entered Region")
-            .setContentText("You have entered a monitored geofence area.")
-            .setSmallIcon(android.R.drawable.ic_dialog_map)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
-
-        NotificationManagerCompat.from(this).notify(2, notification)
-    }
-
-    private fun sendLeaveNotification() {
-        val CHANNEL_ID = "geofencing_notification_channel"
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Left Region")
-            .setContentText("You have left a monitored geofence area.")
-            .setSmallIcon(android.R.drawable.ic_dialog_map)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
-
-        NotificationManagerCompat.from(this).notify(3, notification)
     }
 
     override fun onBind(intent: Intent?): IBinder? {

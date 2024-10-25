@@ -1,23 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
   package="com.roseik.multiple_geofences">
     <application>
-        <receiver
-            android:name=".GeofenceBroadcastReceiver"
-            android:enabled="true"
-            android:exported="true" />
+<!--        <receiver-->
+<!--            android:name=".GeofenceBroadcastReceiver"-->
+<!--            android:enabled="true"-->
+<!--            android:exported="true" />-->
 
-
-        <!-- Service for handling geofence events -->
-        <service
-            android:name=".GeofenceService"
-            android:permission="android.permission.BIND_JOB_SERVICE"
-            android:enabled="true"
-            android:exported="false" />
-
-        <service
-            android:name=".RebootJobService"
-            android:permission="android.permission.BIND_JOB_SERVICE"
-            android:exported="true"/>
+<!--        &lt;!&ndash; Service for handling geofence events &ndash;&gt;-->
+<!--        <service-->
+<!--            android:name=".GeofenceService"-->
+<!--            android:permission="android.permission.BIND_JOB_SERVICE"-->
+<!--            android:enabled="true"-->
+<!--            android:exported="false" />-->
 
     </application>
     <!-- Permissions required for geofencing -->

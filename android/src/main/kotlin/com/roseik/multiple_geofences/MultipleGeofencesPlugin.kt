@@ -142,8 +142,17 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodCallHandler, ActivityAware 
 
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: MethodChannel.Result) {
     when (call.method) {
-      "checkAndRequestBatteryOptimization" -> {
-        activity?.let { promptUserForBatteryOptimization(it) }
+
+      "openLocationSettings" -> {
+        activity?.let { openLocationSettings(it) }
+        result.success(null)
+      }
+      "isBatteryOptimizationIgnored" -> {
+        val isIgnoringBatteryOptimizations = isBatteryOptimizationIgnored(context)
+        result.success(isIgnoringBatteryOptimizations)
+      }
+      "requestIgnoreBatteryOptimization" -> {
+        activity?.let { requestIgnoreBatteryOptimization(it) }
         result.success(null)
       }
       "requestLocationPermission" -> {
@@ -322,20 +331,33 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodCallHandler, ActivityAware 
       }
   }
 
-  fun promptUserForBatteryOptimization(context: Context) {
-    // Get PowerManager instance
-    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    val packageName = context.packageName
+  fun isBatteryOptimizationIgnored(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+      val packageName = context.packageName
+      return powerManager.isIgnoringBatteryOptimizations(packageName)
+    }
+    // Assume true for devices below API level 23 as battery optimizations are not relevant
+    return true
+  }
 
-    // Check if app is already excluded from battery optimizations
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
-
+  fun requestIgnoreBatteryOptimization(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !isBatteryOptimizationIgnored(context)) {
       val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-        data = Uri.parse("package:$packageName")
+        data = Uri.parse("package:${context.packageName}")
       }
       context.startActivity(intent)
     }
   }
+
+  fun openLocationSettings(context: Context) {
+    val intent = Intent().apply {
+      action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+      data = Uri.fromParts("package", context.packageName, null)
+    }
+    context.startActivity(intent)
+  }
+
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
     channel.setMethodCallHandler(null)

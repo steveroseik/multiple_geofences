@@ -16,6 +16,11 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
+
+    case "openLocationSettings":
+        openAppSettings()
+    case "isLocationPermissionAllowed":
+        checkLocationPermissionStatus(result: result)
     case "requestLocationPermission":
       requestLocationPermission(result: result)
     case "startGeofencing":
@@ -48,6 +53,16 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  public func openAppSettings() {
+      guard let settingsUrl = URL(string: UIApplication.openSettingsURLString) else {
+          return
+      }
+
+      if UIApplication.shared.canOpenURL(settingsUrl) {
+          UIApplication.shared.open(settingsUrl, options: [:], completionHandler: nil)
+      }
   }
     
  private func isServiceRunning(geofenceId: String) -> Bool {
@@ -101,6 +116,28 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
             result(false)
         }
   }
+
+  private func checkLocationPermissionStatus(result: @escaping FlutterResult) {
+      if locationManager == nil {
+          locationManager = CLLocationManager()
+          locationManager?.delegate = self
+          locationManager?.allowsBackgroundLocationUpdates = true // Enable background updates
+          locationManager?.pausesLocationUpdatesAutomatically = false // Prevent pausing updates
+      }
+
+      // Get the current authorization status
+      let currentStatus = CLLocationManager.authorizationStatus()
+
+      switch currentStatus {
+      case .authorizedAlways:
+          result(true) // Permission is granted for Always
+      case .authorizedWhenInUse, .notDetermined, .denied, .restricted:
+          result(false) // Permission is not Always
+      @unknown default:
+          result(false)
+      }
+  }
+
 
     private func startGeofencing(id: String, latitude: Double, longitude: Double, radius: Double, result: @escaping FlutterResult) {
     guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else {
