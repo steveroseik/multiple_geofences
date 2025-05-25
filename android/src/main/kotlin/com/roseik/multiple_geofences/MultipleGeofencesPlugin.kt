@@ -50,11 +50,13 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodCallHandler, ActivityAware 
         val geofencingClient = LocationServices.getGeofencingClient(context)
 
         val prefs = context.getSharedPreferences("GeofencingPrefs", Context.MODE_PRIVATE)
-        val allGeofences = prefs.all
+        val geofences = prefs.getStringSet("geofences", mutableSetOf()) ?: mutableSetOf()
 
-        for ((geofenceId, geofenceData) in allGeofences) {
-          if (geofenceData is String) {
-            val geofenceParams = geofenceData.split(",")
+        for (geofenceEntry in geofences) {
+          val parts = geofenceEntry.split(":")
+          if (parts.size == 2) {
+            val geofenceId = parts[0]
+            val geofenceParams = parts[1].split(",")
             if (geofenceParams.size == 3) {
               val latitude = geofenceParams[0].toDoubleOrNull() ?: continue
               val longitude = geofenceParams[1].toDoubleOrNull() ?: continue
@@ -204,6 +206,19 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodCallHandler, ActivityAware 
         val status = getLocationPermissionStatus()
         result.success(status)
       }
+      "updateGeofences" -> {
+        val geofences = call.argument<List<Map<String, Any>>>("geofences")
+        if (geofences != null) {
+          updateGeofences(geofences)
+          result.success(true)
+        } else {
+          result.error("INVALID_ARGUMENT", "Geofences list is null", null)
+        }
+      }
+      "clearAllGeofences" -> {
+        clearAllGeofences()
+        result.success(true)
+      }
       else -> {
         result.notImplemented()
       }
@@ -287,11 +302,57 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodCallHandler, ActivityAware 
       }
   }
 
+
+  private fun updateGeofences(geofences: List<Map<String, Any>>) {
+    // Step 1: Remove all old geofences
+    removeAllGeofences {
+      // Step 2: Clear shared preferences
+      clearGeofencesFromSharedPreferences()
+
+      // Step 3: Add new geofences
+      for (geofence in geofences) {
+        val latitude = geofence["latitude"] as? Double ?: continue
+        val longitude = geofence["longitude"] as? Double ?: continue
+        val radius = (geofence["radius"] as? Double)?.toFloat() ?: continue
+        val geofenceId = geofence["geofenceId"] as? String ?: continue
+        startGeofencing(latitude, longitude, radius, geofenceId)
+      }
+    }
+  }
+
+  private fun removeAllGeofences(onSuccess: () -> Unit) {
+    geofencePendingIntent?.let { pendingIntent ->
+      geofencingClient.removeGeofences(pendingIntent)
+        .addOnSuccessListener {
+          Log.i("MultipleGeofencesPlugin", "All geofences removed successfully.")
+          onSuccess()
+        }
+        .addOnFailureListener { e ->
+          Log.e("MultipleGeofencesPlugin", "Failed to remove geofences: ${e.message}")
+        }
+    } ?: run {
+      Log.e("MultipleGeofencesPlugin", "Failed to remove geofences: PendingIntent is null.")
+    }
+  }
+
+
+
+
+  private fun clearGeofencesFromSharedPreferences() {
+    val prefs = context.getSharedPreferences("GeofencingPrefs", Context.MODE_PRIVATE)
+    val editor = prefs.edit()
+    editor.clear()
+    editor.apply()
+    Log.i("MultipleGeofencesPlugin", "Geofencing shared preferences cleared.")
+  }
+
   private fun saveGeofenceToSharedPreferences(geofenceId: String, latitude: Double, longitude: Double, radius: Float) {
     val prefs = context.getSharedPreferences("GeofencingPrefs", Context.MODE_PRIVATE)
     val editor = prefs.edit()
     val geofenceData = "$latitude,$longitude,$radius"
-    editor.putString(geofenceId, geofenceData)
+    val geofences = prefs.getStringSet("geofences", mutableSetOf()) ?: mutableSetOf()
+    geofences.add("$geofenceId:$geofenceData")
+    editor.putStringSet("geofences", geofences)
     editor.apply()
   }
 
@@ -314,6 +375,12 @@ class MultipleGeofencesPlugin : FlutterPlugin, MethodCallHandler, ActivityAware 
           startGeofencing(latitude, longitude, radius, geofenceId)
         }
       }
+    }
+  }
+
+  private fun clearAllGeofences() {
+    removeAllGeofences {
+      clearGeofencesFromSharedPreferences()
     }
   }
 

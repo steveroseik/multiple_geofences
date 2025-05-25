@@ -6,6 +6,7 @@ import CoreLocation
 public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManagerDelegate {
   private var locationManager: CLLocationManager?
   private var channel: FlutterMethodChannel?
+  private var pendingLocationResult: FlutterResult?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "com.roseik.multiple_geofences/geofencing", binaryMessenger: registrar.messenger())
@@ -82,7 +83,8 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
   private func restartService(geofenceId: String, latitude: Double, longitude: Double, radius: Double, result: @escaping FlutterResult) {
     // Stop monitoring the existing geofence
     guard let monitoredRegions = locationManager?.monitoredRegions else {
-      result(FlutterError(code: "GEOFENCE_NOT_RUNNING", message: "Geofence with ID \(geofenceId) is not currently running", details: nil))
+      // Restart the geofencing service
+      startGeofencing(id: geofenceId, latitude: latitude, longitude: longitude, radius: radius, result: result)
       return
     }
 
@@ -104,17 +106,23 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
             locationManager?.allowsBackgroundLocationUpdates = true // Enable background updates
             locationManager?.pausesLocationUpdatesAutomatically = false // Prevent pausing updates
         }
-
-        // Request Always Authorization
-        locationManager?.requestAlwaysAuthorization()
-
-        // Check the current authorization status
         let currentStatus = CLLocationManager.authorizationStatus()
+
+        // Handle permanently denied scenario
+        if currentStatus == .denied || currentStatus == .restricted {
+            result(false) // Return immediately with false
+            return
+        }
+
+        // If permission was already granted
         if currentStatus == .authorizedAlways {
             result(true)
-        } else {
-            result(false)
+            return
         }
+
+        // Save the result to return later from the delegate
+        pendingLocationResult = result
+        locationManager?.requestAlwaysAuthorization()
   }
 
   private func checkLocationPermissionStatus(result: @escaping FlutterResult) {
@@ -160,12 +168,31 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
 
   // CLLocationManagerDelegate methods
   public func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
+//    // Send a local notification
+//      let content = UNMutableNotificationContent()
+//      content.title = "Geofence Entered"
+//      content.body = "Region ID: \(region.identifier)"
+//      content.sound = .default
+//
+//      let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+//      UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+
     print("User entereddd region: \(region.identifier)")
     // Notify Flutter about the event
     channel?.invokeMethod("onEnterRegion", arguments: ["regionId": region.identifier])
   }
 
   public func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
+
+//  // Send a local notification
+//    let content = UNMutableNotificationContent()
+//    content.title = "Geofence Entered"
+//    content.body = "Region ID: \(region.identifier)"
+//    content.sound = .default
+//
+//    let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+//    UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+
     print("User exiteddd region: \(region.identifier)")
     // Notify Flutter about the event
     channel?.invokeMethod("onExitRegion", arguments: ["regionId": region.identifier])
@@ -173,18 +200,27 @@ public class MultipleGeofencesPlugin: NSObject, FlutterPlugin, CLLocationManager
 
   // Handle authorization changes
   public func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
-    switch status {
-    case .authorizedAlways:
-      print("Authorization changed to: Always")
-    case .authorizedWhenInUse, .denied, .restricted:
-      print("Authorization changed to: Limited")
-    case .notDetermined:
-      print("Authorization status not determined")
-    @unknown default:
-      print("Unknown authorization status")
-    }
-    // Notify Flutter about authorization status change
-    channel?.invokeMethod("onAuthorizationChanged", arguments: ["status": status.rawValue])
+      switch status {
+      case .authorizedAlways:
+          print("Authorization changed to: Always")
+          pendingLocationResult?(true) // Return result to Flutter
+      case .authorizedWhenInUse, .denied, .restricted:
+          print("Authorization changed to: Limited")
+          pendingLocationResult?(false)
+      case .notDetermined:
+          print("Authorization status not determined")
+          // Don't return result yet; user hasn't responded
+          return
+      @unknown default:
+          print("Unknown authorization status")
+          pendingLocationResult?(false)
+      }
+
+      // Clear the pending result to avoid multiple calls
+      pendingLocationResult = nil
+
+      // Notify Flutter about the updated status
+      channel?.invokeMethod("onAuthorizationChanged", arguments: ["status": status.rawValue])
   }
 
   // Handle errors
